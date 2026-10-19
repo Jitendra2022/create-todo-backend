@@ -30,10 +30,10 @@ jobs:
           mkdir -p /tmp/todo-deploy
 
           tar -czf /tmp/todo-deploy/app.tar.gz \
-            --exclude=./.git \
-            --exclude=./node_modules \
-            --exclude=./.env \
-            --exclude=./app.tar.gz \
+            --exclude='./.git' \
+            --exclude='./node_modules' \
+            --exclude='./.env' \
+            --exclude='./app.tar.gz' \
             .
 
           cp /tmp/todo-deploy/app.tar.gz "$GITHUB_WORKSPACE/app.tar.gz"
@@ -43,12 +43,10 @@ jobs:
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          set -e
-
+          set -eu
           mkdir -p ~/.ssh
           printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
 
       - name: Copy files to EC2
@@ -57,28 +55,125 @@ jobs:
             app.tar.gz \
             "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/todo-backend-app.tar.gz"
 
-      - name: Deploy and restart PM2
+      - name: Deploy, health check and rollback
         run: |
           ssh -i ~/.ssh/deploy_key \
-            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" <<'EOF'
-          set -e
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'EOF'
+          set -uo pipefail
 
           APP_DIR="/home/ubuntu/create-todo-backend"
+          NEW_ARCHIVE="/tmp/todo-backend-app.tar.gz"
+          BACKUP_ARCHIVE="/tmp/todo-backend-backup-$(date +%s).tar.gz"
 
-          test -d "$APP_DIR"
-
-          tar -xzf /tmp/todo-backend-app.tar.gz -C "$APP_DIR"
-          rm -f /tmp/todo-backend-app.tar.gz
+          if [ ! -d "$APP_DIR" ]; then
+            echo "ERROR: Application directory not found."
+            exit 1
+          fi
 
           cd "$APP_DIR"
 
-          npm ci --omit=dev
+          echo "Creating backup of current application..."
 
-          pm2 describe todo-backend >/dev/null
-          pm2 restart todo-backend --update-env
-          pm2 save
+          if ! tar -czf "$BACKUP_ARCHIVE" \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='.env' \
+            .; then
+            echo "ERROR: Backup creation failed."
+            exit 1
+          fi
 
-          echo "Deployment completed successfully."
+          rollback() {
+            echo "Deployment failed. Rolling back..."
+
+            find "$APP_DIR" -mindepth 1 -maxdepth 1 \
+              ! -name '.env' \
+              ! -name 'node_modules' \
+              -exec rm -rf -- {} +
+
+            if ! tar -xzf "$BACKUP_ARCHIVE" -C "$APP_DIR"; then
+              echo "CRITICAL: Could not restore backup."
+              echo "Backup retained at $BACKUP_ARCHIVE"
+              return 1
+            fi
+
+            cd "$APP_DIR"
+
+            if ! npm ci --omit=dev; then
+              echo "CRITICAL: Old dependencies could not be restored."
+              return 1
+            fi
+
+            if ! pm2 restart todo-backend --update-env; then
+              echo "CRITICAL: PM2 restart failed during rollback."
+              return 1
+            fi
+
+            pm2 save || true
+            echo "Rollback completed. Previous code restored."
+          }
+
+          echo "Extracting new application files..."
+
+          if ! tar -xzf "$NEW_ARCHIVE" -C "$APP_DIR"; then
+            rollback || true
+            exit 1
+          fi
+
+          rm -f "$NEW_ARCHIVE"
+          cd "$APP_DIR"
+
+          echo "Installing production dependencies..."
+
+          if ! npm ci --omit=dev; then
+            rollback || true
+            exit 1
+          fi
+
+          echo "Restarting PM2..."
+
+          if ! pm2 restart todo-backend --update-env; then
+            rollback || true
+            exit 1
+          fi
+
+          pm2 save || {
+            echo "WARNING: PM2 state could not be saved."
+          }
+
+          echo "Checking application health..."
+
+          HEALTHY=false
+
+          for attempt in $(seq 1 10); do
+            if curl --connect-timeout 2 --max-time 3 -fsS \
+              http://127.0.0.1:5000/health \
+              -o /tmp/todo-health-response.json \
+              && grep -q '"healthy"' /tmp/todo-health-response.json; then
+              HEALTHY=true
+              break
+            fi
+
+            echo "Health check attempt $attempt/10 failed."
+            sleep 3
+          done
+
+          if [ "$HEALTHY" != "true" ]; then
+            echo "Health check failed."
+
+            if rollback; then
+              rm -f "$BACKUP_ARCHIVE"
+            else
+              echo "WARNING: Check PM2 logs and backup manually."
+            fi
+
+            exit 1
+          fi
+
+          cat /tmp/todo-health-response.json
+          rm -f /tmp/todo-health-response.json "$BACKUP_ARCHIVE"
+
+          echo "Deployment and health check successful."
           EOF
 
       - name: Cleanup SSH key

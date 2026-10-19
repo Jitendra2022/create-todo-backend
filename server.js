@@ -13,7 +13,7 @@ app.use(
 
 // Home Route
 app.get("/", (req, res) => {
-  res.json({ message: "API running" });
+  res.json({ message: "API running by jjj" });
 });
 
 // Health Check Route
