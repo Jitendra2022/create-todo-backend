@@ -10,6 +10,21 @@ app.use(
     origin: process.env.CLIENT_URL.split(","),
   })
 );
+
+// Home Route
+app.get("/", (req, res) => {
+  res.json({ message: "API running" });
+});
+
+// Health Check Route
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    success: true,
+    status: "healthy",
+    message: "Todo backend is running",
+  });
+});
+
 app.use(express.json());
 
 app.get("/", (req, res) => res.json({ message: "API running" }));
