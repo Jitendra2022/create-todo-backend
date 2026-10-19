@@ -1,3 +1,4 @@
+```yaml
 name: Deploy Node.js Backend to EC2
 
 on:
@@ -27,22 +28,28 @@ jobs:
 
       - name: Prepare deployment package
         run: |
-          tar \
-            --exclude=.git \
-            --exclude=node_modules \
-            --exclude=.env \
-            --exclude=app.tar.gz \
-            --warning=no-file-changed \
-            -czf app.tar.gz .
+          mkdir -p /tmp/todo-deploy
+
+          tar -czf /tmp/todo-deploy/app.tar.gz \
+            --exclude=./.git \
+            --exclude=./node_modules \
+            --exclude=./.env \
+            --exclude=./app.tar.gz \
+            .
+
+          cp /tmp/todo-deploy/app.tar.gz "$GITHUB_WORKSPACE/app.tar.gz"
 
       - name: Configure SSH
         env:
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
+          set -e
+
           mkdir -p ~/.ssh
           printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
 
       - name: Copy files to EC2
@@ -60,11 +67,14 @@ jobs:
           APP_DIR="/home/ubuntu/create-todo-backend"
 
           test -d "$APP_DIR"
+
           tar -xzf /tmp/todo-backend-app.tar.gz -C "$APP_DIR"
           rm -f /tmp/todo-backend-app.tar.gz
 
           cd "$APP_DIR"
+
           npm ci --omit=dev
+
           pm2 describe todo-backend >/dev/null
           pm2 restart todo-backend --update-env
           pm2 save
@@ -75,3 +85,4 @@ jobs:
       - name: Cleanup SSH key
         if: always()
         run: rm -f ~/.ssh/deploy_key
+```
