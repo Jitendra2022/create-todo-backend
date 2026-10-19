@@ -27,10 +27,13 @@ jobs:
 
       - name: Prepare deployment package
         run: |
-          tar --exclude=.git \
-              --exclude=node_modules \
-              --exclude=.env \
-              -czf app.tar.gz .
+          tar \
+            --exclude=.git \
+            --exclude=node_modules \
+            --exclude=.env \
+            --exclude=app.tar.gz \
+            --warning=no-file-changed \
+            -czf app.tar.gz .
 
       - name: Configure SSH
         env:
