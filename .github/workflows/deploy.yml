@@ -45,28 +45,28 @@ jobs:
       - name: Copy files to EC2
         run: |
           scp -i ~/.ssh/deploy_key \
-              app.tar.gz \
-              "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/todo-backend-app.tar.gz"
+            app.tar.gz \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/todo-backend-app.tar.gz"
 
       - name: Deploy and restart PM2
         run: |
           ssh -i ~/.ssh/deploy_key \
-              "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" <<'EOF'
-            set -e
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" <<'EOF'
+          set -e
 
-            APP_DIR="/home/ubuntu/create-todo-backend"
+          APP_DIR="/home/ubuntu/create-todo-backend"
 
-            test -d "$APP_DIR"
-            tar -xzf /tmp/todo-backend-app.tar.gz -C "$APP_DIR"
-            rm -f /tmp/todo-backend-app.tar.gz
+          test -d "$APP_DIR"
+          tar -xzf /tmp/todo-backend-app.tar.gz -C "$APP_DIR"
+          rm -f /tmp/todo-backend-app.tar.gz
 
-            cd "$APP_DIR"
-            npm ci --omit=dev
-            pm2 describe todo-backend >/dev/null
-            pm2 restart todo-backend --update-env
-            pm2 save
+          cd "$APP_DIR"
+          npm ci --omit=dev
+          pm2 describe todo-backend >/dev/null
+          pm2 restart todo-backend --update-env
+          pm2 save
 
-            echo "Deployment completed successfully."
+          echo "Deployment completed successfully."
           EOF
 
       - name: Cleanup SSH key
