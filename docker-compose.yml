@@ -8,7 +8,7 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - /etc/nginx/sites-available/todo-backend.conf:/etc/nginx/conf.d/todo-backend.conf:ro
+      - ./todo-backend.conf:/etc/nginx/conf.d/todo-backend.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - backend
