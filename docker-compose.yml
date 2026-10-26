@@ -1,4 +1,16 @@
+
 services:
+  nginx:
+    image: nginx:alpine
+    container_name: todo-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - /etc/nginx/sites-available/todo-backend.conf:/etc/nginx/conf.d/todo-backend.conf:ro
+    depends_on:
+      - backend
+
   backend:
     build: .
     container_name: todo-backend
@@ -20,5 +32,6 @@ services:
       - "127.0.0.1:27017:27017"
     volumes:
       - mongodb_data:/data/db
+
 volumes:
   mongodb_data:
